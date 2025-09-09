@@ -16,8 +16,7 @@ from sir import config
 from sir.schema import SCHEMA, generate_update_map
 from sir.indexing import live_index
 from sir.query_generation.paths import second_last_model_in_path, generate_query, generate_filtered_query
-from sir.util import (create_amqp_connection,
-                      db_session,
+from sir.util import (db_session,
                       db_session_ctx,
                       solr_connection,
                       solr_version_check,
@@ -64,8 +63,7 @@ class INDEX_LIMIT_EXCEEDED(Exception):
 def action_wrapper(f):
     """
     Common wrapper for a message action functions like `ack`, `reject` and `requeue`
-    that provides exception handling and makes sure that the AMQP connection is
-    connected before any interaction with the RabbitMQ.
+    that provides logging and exception handling.
     The following wrapper function is returned:
 
     .. py:function:: wrapper(self, msg, *args, **kwargs)
@@ -78,7 +76,6 @@ def action_wrapper(f):
     """
     @wraps(f)
     def wrapper(self, msg, *args, **kwargs):
-        self.connect_to_rabbitmq()
         try:
             logger.debug('Performing %s on %s', f.__name__, vars(msg))
             return f(self, msg, *args, **kwargs)
@@ -460,8 +457,6 @@ def _watch_impl(entities):
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
-    handler.connect_to_rabbitmq()
-    logger.info("Connection to RabbitMQ established")
     logger.debug("Waiting for a message")
     while indexing.PROCESS_FLAG.value:
         try:
@@ -496,12 +491,6 @@ def watch(args):
 
     :param [str] entity_type: Entity types to watch.
     """
-    try:
-        create_amqp_connection()
-    except socket_error as e:
-        logger.error("Couldn't connect to RabbitMQ, check your settings. %s", e)
-        exit(1)
-
     try:
         entities = args["entity_type"] or SCHEMA.keys()
         _watch_impl(entities)
